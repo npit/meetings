@@ -1,6 +1,10 @@
 import pandas
 import pickle
 
+def matches(arg1, arg2):
+    if arg1 == arg2: return True
+    if arg1.startswith(arg2[0]): return True
+    return False
 
 class Week:
     hourchunk = 1
@@ -62,6 +66,10 @@ class Week:
         for t in self.timerange:
             self.time2int[t] = len(self.time2int)
 
+    def wipe(self):
+        self.restrictions = []
+        self.availability = []
+
     def change(self, day, time1, time2, value, relational):
         # check initialization
         if not self.restrictions:
@@ -91,23 +99,29 @@ class Week:
                 time2 = time1
 
         self.restrictions.append((value, self.weekdays[day], time1, time2))
-        print(self.restrictions[-1])
+        #print(self.restrictions[-1])
 
         for t in range(time1, time2+self.hourchunk, self.hourchunk):
             timeidx = self.time2int[t]
-            print("Setting day {} time {} idx {} to {}".format(day, t, timeidx, value))
+            #print("Setting day {} time {} idx {} to {}".format(day, t, timeidx, value))
             self.availability[day][timeidx] = self.symbols[value]
+
+    def pretty_print(self):
+        w = pandas.DataFrame(self.get_avail(), index = self.timerange, columns = self.weekdays)
+        print(w)
 
 
 class Schedule:
     command_handlers = {}
     person_weeks = {}
-
     weekdays = Week.weekdays #["mon", "tue", "wed", "thu", "fri"]
     temporal_restrictors = None
     availability_keywords = None
     # limits = [datetime.strptime('09:00'), datetime.strptime('21:00')]
+    keywords = ["tables", "restrictions", "people", "aggregate"]
 
+    do_quit = False
+    verbose = False
 
     def __init__(self, name):
         self.after = Week.after
@@ -116,34 +130,127 @@ class Schedule:
         self.availability_keywords = [Week.can, Week.cant]
         self.temporal_restrictors = [self.after, self.before]
 
-    def parse(self, command):
-        if command == "q":
+    def show_restrictions(self, which_person = None):
+        if which_person is None:
+            print("Restrictions:")
+        for pers, week in self.person_weeks.items():
+            if which_person and pers != which_person:
+                continue
+            print(pers)
+            for rest in week.restrictions:
+                print("\t{}".format(rest))
+            if which_person:
+                return
+
+    def show_tables(self, which_person = None):
+        if which_person is None:
+            print("Tables:")
+        for pers, week in self.person_weeks.items():
+            if which_person and pers != which_person:
+                continue
+            print("Table for {}".format(pers))
+            week.pretty_print()
+            if which_person:
+                return
+
+    def should_quit(self):
+        return self.do_quit
+
+    def parse_misc(self, command):
+        if matches(command, "quit"):
+            self.do_quit = True
             return True
+        cmds = command.split()
+        cmd = cmds[0]
+
+
+        if matches(cmd, "show"):
+            if len(cmds) == 1:
+                self.show_restrictions()
+                self.show_tables()
+                return True
+
+            args = cmds[1:]
+            arg = args[0]
+
+            if not any(matches(arg, kw) for kw in self.keywords):
+                # it's a person
+                if arg not in self.person_weeks:
+                    print("Person {} does not exist.".format(arg))
+                which = args[1] if len(args) > 1 else None
+                if which is None or matches(which, "restrictions"):
+                    self.show_tables(arg)
+                if which is None or matches(which, "restrictions"):
+                    self.show_restrictions(arg)
+                return True
+
+
+            which = args[1] if len(args) > 1 else None
+            if matches(arg, "restrictions"):
+                self.show_restrictions(which)
+                return True
+            elif matches(arg, "tables"):
+                self.show_tables(which)
+                return True
+            elif matches(arg, "people"):
+                for pers in self.person_weeks:
+                    print(pers)
+                return True
+            elif matches(arg, "aggregate"):
+                self.show_aggregate()
+                return True
+
+        return False
+
+    def parse(self, command):
+        if self.parse_misc(command):
+            return
+
         print("Parsing command:", command)
         command = command.split()
         name = command[0]
+        if len(name) < 2:
+            print("Names need to exceed a single character.")
+            exit(1)
+        if name in self.keywords:
+            print("Name {} is a reserved keyword.".format(name))
+            exit(1)
 
         if name in self.availability_keywords:
             # no name give, name cache in effect.
             name = self.person_cache
-            availability, restr = command[0], [ c.lower() for c in command[1:]]
         else:
             if len(command) == 1:
                 self.person_cache = name
                 print("Taking input for", name)
                 self.person_weeks[name] = Week(name)
                 return
-            availability, restr = command[1], [ c.lower() for c in command[2:]]
+            command = command[1:]
+        keyword = command[0]
+        if keyword == "clear":
+            if name not in self.person_weeks:
+                print("Huh? No data for {}.".format(name))
+                return
+            self.person_weeks[name].wipe()
+            return
+        if keyword == "delete":
+            if name not in self.person_weeks:
+                print("Huh? No data for {}.".format(name))
+                return
+            del self.person_weeks[name]
+            return
+
+        restr = [ c.lower() for c in command[1:]]
 
         self.person_cache = name
         if name not in self.person_weeks:
             print("Creating week for {}".format(name))
             self.person_weeks[name] = Week(name)
-        self.process_temporal_command(name, availability, restr)
+        self.process_temporal_command(name, keyword, restr)
         return False
 
     # weekday specifier, duration specifier
-    # weekday specifier: day name / abbrev 
+    # weekday specifier: day name / abbrev
     # duration specifier: time1-time2
     # duration specifier: <after|before|...> time
     def process_temporal_command(self, person, avail, cmd):
@@ -183,7 +290,6 @@ class Schedule:
         # else a single number
         t1 = timestr.split()
 
-
     def get_time(self, timestr):
         if timestr is None:
             return None
@@ -212,19 +318,19 @@ class Schedule:
             pickle.dump([self.name, self.person_weeks], f)
 
     def print_week(self):
-        for person in self.person_weeks:
-            print(self.person_weeks)
-            week = self.person_weeks[person]
-            print(week.name, week.restrictions)
-            w = pandas.DataFrame(week.get_avail(), index = week.timerange, columns = self.weekdays)
-            print(w)
+        if self.verbose:
+            for person in self.person_weeks:
+                week = self.person_weeks[person]
+                self.show_restrictions(person)
+                self.show_tables(person)
+                #print(week.name, week.restrictions)
+                week.pretty_print()
+            self.show_aggregate()
 
+    def show_aggregate(self):
         # print aggregate
+        print("Aggregate table:")
         Week.aggregate(self.person_weeks.values())
 
-        # print(" ".join(self.weekdays))
-        # for day in self.week.get_avail():
-        #     for hr in day:
-        #         print(hr, end=" ")
-        #     print()
-
+    def set_verbose(self):
+        self.verbose = True

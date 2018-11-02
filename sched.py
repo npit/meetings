@@ -15,16 +15,20 @@ from classes import Schedule
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("schedule_name")
+    parser.add_argument("--verbose", action="store_true", dest="verbose")
     args = parser.parse_args()
 
     schedule_name = args.schedule_name
     if exists(schedule_name):
-        print("Loading existing schedule")
+        print("Loading existing schedule.")
         schedule = Schedule.load(schedule_name)
         schedule.print_week()
+        print("Loaded {}.".format(schedule.name))
     else:
         print("Creating new schedule: {}".format(schedule_name))
         schedule = Schedule(schedule_name)
+    if args.verbose:
+        schedule.set_verbose()
     # cmds = []
     # cmds.append( "mary cant Mon after 14")
     # cmds.append( "kate cant Tue  14 - 15")
@@ -32,16 +36,17 @@ def main():
     # cmds.append( "mary cant Fri 9 to 18")
 
     while(True):
+        print("> ",end="")
         cmd = input()
         #command = "john can Mon after 14"
         #if not cmds:
         #    break
         #cmd = cmds.pop()
         #print(cmd)
-        should_quit = schedule.parse(cmd)
-        if should_quit:
-            break
+        schedule.parse(cmd)
         schedule.print_week()
+        if schedule.should_quit():
+            break
         #break
 
     schedule.print_week()
