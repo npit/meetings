@@ -203,6 +203,9 @@ class Schedule:
         return False
 
     def parse(self, command):
+        if not command:
+            return
+
         if self.parse_misc(command):
             return
 
@@ -325,7 +328,7 @@ class Schedule:
                 self.show_tables(person)
                 #print(week.name, week.restrictions)
                 week.pretty_print()
-            self.show_aggregate()
+        self.show_aggregate()
 
     def show_aggregate(self):
         # print aggregate
